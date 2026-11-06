@@ -1,0 +1,419 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Local Chat</title>
+<style>
+:root {
+  --bg: #f7f7f5; --panel: #ffffff; --side: #efeee9; --text: #1f1f1d; --muted: #6b6b66;
+  --border: #dddcd5; --accent: #c2410c; --accent-fg: #fff; --user: #e9e7df; --code: #f1f0eb;
+  --think: #f3f1ea;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #1c1c1a; --panel: #242422; --side: #191917; --text: #e9e8e3; --muted: #9a9993;
+    --border: #363632; --accent: #f97316; --accent-fg: #1c1c1a; --user: #2f2f2c; --code: #161614;
+    --think: #20201e;
+  }
+}
+* { box-sizing: border-box; }
+html, body { height: 100%; margin: 0; }
+body { background: var(--bg); color: var(--text); font: 15px/1.6 system-ui, -apple-system, "Segoe UI", sans-serif; display: flex; }
+button { font: inherit; color: inherit; cursor: pointer; }
+
+/* sidebar */
+#side { width: 260px; background: var(--side); border-right: 1px solid var(--border); display: flex; flex-direction: column; flex-shrink: 0; }
+#side.hidden { display: none; }
+#newChat { margin: 12px; padding: 9px 12px; border: 1px solid var(--border); background: var(--panel); border-radius: 8px; text-align: left; }
+#newChat:hover { border-color: var(--accent); }
+#convs { flex: 1; overflow-y: auto; padding: 0 8px 8px; }
+.conv { display: flex; align-items: center; gap: 4px; padding: 7px 10px; border-radius: 6px; cursor: pointer; font-size: 14px; }
+.conv:hover { background: var(--user); }
+.conv.active { background: var(--user); font-weight: 600; }
+.conv span { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.conv button { border: 0; background: none; opacity: 0; padding: 0 4px; color: var(--muted); }
+.conv:hover button { opacity: 1; }
+#settings { border-top: 1px solid var(--border); padding: 12px; font-size: 13px; display: grid; gap: 8px; }
+#settings label { display: grid; gap: 3px; color: var(--muted); }
+#settings select, #settings textarea, #settings input[type=number] { font: inherit; color: var(--text); background: var(--panel); border: 1px solid var(--border); border-radius: 6px; padding: 5px 7px; }
+#settings textarea { resize: vertical; min-height: 54px; }
+#settings .row { display: flex; align-items: center; gap: 6px; color: var(--text); }
+
+/* main */
+#main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+header { display: flex; align-items: center; gap: 10px; padding: 10px 16px; border-bottom: 1px solid var(--border); }
+header button { border: 0; background: none; font-size: 18px; padding: 2px 6px; border-radius: 6px; }
+header button:hover { background: var(--user); }
+#title { font-weight: 600; flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#status { font-size: 12px; color: var(--muted); }
+#status.err { color: #dc2626; }
+#log { flex: 1; overflow-y: auto; }
+#msgs { max-width: 780px; margin: 0 auto; padding: 24px 16px 8px; }
+.empty { text-align: center; color: var(--muted); margin-top: 18vh; }
+.empty h1 { font-weight: 600; color: var(--text); font-size: 26px; margin: 0 0 6px; }
+.msg { margin: 0 0 22px; }
+.msg.user { display: flex; justify-content: flex-end; }
+.msg.user .bubble { background: var(--user); padding: 9px 14px; border-radius: 14px; max-width: 85%; white-space: pre-wrap; word-wrap: break-word; }
+.msg.assistant .bubble { word-wrap: break-word; }
+.bubble > :first-child { margin-top: 0; } .bubble > :last-child { margin-bottom: 0; }
+.bubble pre { background: var(--code); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; overflow-x: auto; position: relative; font-size: 13px; line-height: 1.5; }
+.bubble code { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; font-size: 0.9em; }
+.bubble :not(pre) > code { background: var(--code); padding: 1px 5px; border-radius: 4px; }
+.bubble pre .copy { position: absolute; top: 6px; right: 6px; font-size: 11px; padding: 2px 8px; border: 1px solid var(--border); background: var(--panel); border-radius: 5px; opacity: 0; }
+.bubble pre:hover .copy { opacity: 1; }
+.bubble table { border-collapse: collapse; } .bubble td, .bubble th { border: 1px solid var(--border); padding: 4px 8px; }
+.bubble blockquote { border-left: 3px solid var(--border); margin-left: 0; padding-left: 12px; color: var(--muted); }
+.bubble a { color: var(--accent); }
+details.think { background: var(--think); border: 1px solid var(--border); border-radius: 8px; padding: 6px 12px; margin-bottom: 10px; font-size: 13.5px; color: var(--muted); }
+details.think summary { cursor: pointer; user-select: none; }
+details.think .tbody { white-space: pre-wrap; margin-top: 6px; }
+.meta { font-size: 12px; color: var(--muted); margin-top: 6px; display: flex; gap: 10px; }
+.meta button { border: 0; background: none; color: var(--muted); padding: 0; font-size: 12px; }
+.meta button:hover { color: var(--text); }
+.cursor::after { content: "▍"; animation: blink 1s steps(2) infinite; color: var(--accent); }
+@keyframes blink { 50% { opacity: 0; } }
+
+/* composer */
+#composer { padding: 8px 16px 16px; }
+#box { max-width: 780px; margin: 0 auto; display: flex; gap: 8px; align-items: flex-end; background: var(--panel); border: 1px solid var(--border); border-radius: 14px; padding: 8px 8px 8px 14px; }
+#box:focus-within { border-color: var(--accent); }
+#input { flex: 1; border: 0; outline: 0; resize: none; background: none; color: var(--text); font: inherit; max-height: 220px; padding: 5px 0; }
+#send { background: var(--accent); color: var(--accent-fg); border: 0; border-radius: 9px; padding: 7px 14px; font-weight: 600; }
+#send:disabled { opacity: 0.4; cursor: default; }
+.hint { max-width: 780px; margin: 6px auto 0; font-size: 11.5px; color: var(--muted); text-align: center; }
+
+@media (max-width: 700px) {
+  #side { position: fixed; inset: 0 auto 0 0; z-index: 10; box-shadow: 0 0 30px rgba(0,0,0,.3); }
+}
+</style>
+</head>
+<body>
+<aside id="side">
+  <button id="newChat">＋ New chat</button>
+  <div id="convs"></div>
+  <div id="settings">
+    <label>Model <select id="model"></select></label>
+    <label>System prompt <textarea id="system" placeholder="Optional instructions for the model"></textarea></label>
+    <label>Temperature <input id="temp" type="number" min="0" max="2" step="0.1" value="0.7"></label>
+    <label class="row" id="thinkRow"><input id="think" type="checkbox"> Show reasoning (thinking mode)</label>
+  </div>
+</aside>
+
+<div id="main">
+  <header>
+    <button id="toggleSide" title="Toggle sidebar">☰</button>
+    <div id="title">New chat</div>
+    <div id="status">connecting…</div>
+  </header>
+  <div id="log"><div id="msgs"></div></div>
+  <div id="composer">
+    <div id="box">
+      <textarea id="input" rows="1" placeholder="Message the model…" autofocus></textarea>
+      <button id="send">Send</button>
+    </div>
+    <div class="hint">Enter to send · Shift+Enter for a new line · Everything stays on this machine</div>
+  </div>
+</div>
+
+<script>
+const $ = (s) => document.querySelector(s);
+const store = {
+  get(k, d) { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch { return d; } },
+  set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} },
+};
+
+let convs = store.get("convs", []);          // [{id, title, messages:[{role, content, thinking?, stats?}]}]
+let currentId = store.get("currentId", null);
+const DEFAULT_MODEL = "hermes3:8b";
+let settings = store.get("settings", { model: DEFAULT_MODEL, system: "", temp: 0.7, think: false });
+// one-time switch for anyone who had qwen3 saved as their model
+if (!store.get("movedToHermes", false)) { settings.model = DEFAULT_MODEL; store.set("settings", settings); store.set("movedToHermes", true); }
+let thinkingModels = new Set();
+let controller = null;
+
+const cur = () => convs.find((c) => c.id === currentId);
+const save = () => { store.set("convs", convs); store.set("currentId", currentId); };
+
+/* ---------- markdown (small, safe: escapes HTML first) ---------- */
+function esc(s) { return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;"); }
+function inline(s) {
+  const codes = [];
+  s = s.replace(/`([^`\n]+)`/g, (_, c) => { codes.push(c); return `\u0000${codes.length - 1}\u0000`; });
+  s = esc(s)
+    .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
+    .replace(/(^|[^*])\*([^*\n]+)\*/g, "$1<em>$2</em>")
+    .replace(/~~(.+?)~~/g, "<del>$1</del>")
+    .replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
+  return s.replace(/\u0000(\d+)\u0000/g, (_, i) => `<code>${esc(codes[i])}</code>`);
+}
+function md(src) {
+  const lines = src.replace(/\r/g, "").split("\n");
+  let out = "", i = 0;
+  while (i < lines.length) {
+    let l = lines[i];
+    const fence = l.match(/^\s*```\s*([\w+-]*)/);
+    if (fence) {
+      const buf = []; i++;
+      while (i < lines.length && !/^\s*```/.test(lines[i])) buf.push(lines[i++]);
+      i++;
+      out += `<pre><button class="copy">Copy</button><code>${esc(buf.join("\n"))}</code></pre>`;
+      continue;
+    }
+    if (/^\s*$/.test(l)) { i++; continue; }
+    const h = l.match(/^(#{1,6})\s+(.*)/);
+    if (h) { out += `<h${h[1].length}>${inline(h[2])}</h${h[1].length}>`; i++; continue; }
+    if (/^\s*([-*_])\s*\1\s*\1[\s\-*_]*$/.test(l)) { out += "<hr>"; i++; continue; }
+    if (/^\s*>/.test(l)) {
+      const buf = [];
+      while (i < lines.length && /^\s*>/.test(lines[i])) buf.push(lines[i++].replace(/^\s*>\s?/, ""));
+      out += `<blockquote>${md(buf.join("\n"))}</blockquote>`; continue;
+    }
+    if (/^\s*\|.*\|\s*$/.test(l) && i + 1 < lines.length && /^\s*\|[\s:|-]+\|\s*$/.test(lines[i + 1])) {
+      const row = (r) => r.trim().replace(/^\||\|$/g, "").split("|").map((c) => c.trim());
+      out += "<table><tr>" + row(l).map((c) => `<th>${inline(c)}</th>`).join("") + "</tr>";
+      i += 2;
+      while (i < lines.length && /^\s*\|.*\|\s*$/.test(lines[i])) out += "<tr>" + row(lines[i++]).map((c) => `<td>${inline(c)}</td>`).join("") + "</tr>";
+      out += "</table>"; continue;
+    }
+    const li = l.match(/^\s*([-*+]|\d+[.)])\s+/);
+    if (li) {
+      const ordered = /\d/.test(li[1]); const tag = ordered ? "ol" : "ul";
+      out += `<${tag}>`;
+      while (i < lines.length) {
+        const m = lines[i].match(/^\s*([-*+]|\d+[.)])\s+(.*)/);
+        if (m) { out += `<li>${inline(m[2])}`; i++; }
+        else if (/^\s{2,}```/.test(lines[i])) {
+          // fenced code block nested in a list item
+          const ind = lines[i].match(/^\s*/)[0].length, buf = []; i++;
+          while (i < lines.length && !/^\s*```/.test(lines[i])) buf.push(lines[i++].slice(ind));
+          i++;
+          out += `<pre><button class="copy">Copy</button><code>${esc(buf.join("\n"))}</code></pre>`;
+        }
+        else if (/^\s{2,}\S/.test(lines[i])) { out += " " + inline(lines[i].trim()); i++; }
+        else if (!lines[i].trim() && /^\s*([-*+]|\d+[.)])\s+|^\s{2,}\S/.test(lines[i + 1] || "")) i++;
+        else break;
+      }
+      out += `</${tag}>`; continue;
+    }
+    const buf = [];
+    while (i < lines.length && lines[i].trim() && !/^\s*(```|#{1,6}\s|>|([-*+]|\d+[.)])\s)/.test(lines[i])) buf.push(lines[i++]);
+    if (!buf.length) buf.push(lines[i++]);
+    out += `<p>${buf.map(inline).join("<br>")}</p>`;
+  }
+  return out;
+}
+
+/* ---------- rendering ---------- */
+function renderSidebar() {
+  const el = $("#convs"); el.innerHTML = "";
+  convs.forEach((c) => {
+    const d = document.createElement("div");
+    d.className = "conv" + (c.id === currentId ? " active" : "");
+    d.innerHTML = `<span></span><button title="Delete">✕</button>`;
+    d.querySelector("span").textContent = c.title || "New chat";
+    d.onclick = () => { if (controller) return; currentId = c.id; save(); renderAll(); };
+    d.querySelector("button").onclick = (e) => {
+      e.stopPropagation();
+      if (!confirm("Delete this chat?")) return;
+      convs = convs.filter((x) => x.id !== c.id);
+      if (currentId === c.id) currentId = convs[0]?.id ?? null;
+      save(); renderAll();
+    };
+    el.appendChild(d);
+  });
+}
+
+function msgEl(m, idx) {
+  const d = document.createElement("div");
+  d.className = "msg " + m.role;
+  const b = document.createElement("div"); b.className = "bubble";
+  d.appendChild(b);
+  if (m.role === "user") b.textContent = m.content;
+  else fillAssistant(d, m, idx, false);
+  return d;
+}
+
+function fillAssistant(d, m, idx, streaming) {
+  const b = d.querySelector(".bubble");
+  let html = "";
+  if (m.thinking && m.thinking.trim()) {
+    const open = streaming && !m.content;
+    html += `<details class="think"${open ? " open" : ""}><summary>${open ? "Thinking…" : "Reasoning"}</summary><div class="tbody"></div></details>`;
+  }
+  html += `<div class="body">${md(m.content || "")}</div>`;
+  b.innerHTML = html;
+  const tb = b.querySelector(".tbody"); if (tb) tb.textContent = m.thinking.trim();
+  b.querySelector(".body").classList.toggle("cursor", streaming);
+  d.querySelector(".meta")?.remove();
+  if (!streaming) {
+    const meta = document.createElement("div"); meta.className = "meta";
+    const copy = document.createElement("button"); copy.textContent = "Copy";
+    copy.onclick = () => { navigator.clipboard.writeText(m.content); copy.textContent = "Copied"; setTimeout(() => copy.textContent = "Copy", 1200); };
+    meta.appendChild(copy);
+    if (idx === cur()?.messages.length - 1) {
+      const re = document.createElement("button"); re.textContent = "Regenerate";
+      re.onclick = regenerate; meta.appendChild(re);
+    }
+    if (m.stats) { const s = document.createElement("span"); s.textContent = m.stats; meta.appendChild(s); }
+    if (m.error) { const s = document.createElement("span"); s.style.color = "#dc2626"; s.textContent = m.error; meta.appendChild(s); }
+    d.appendChild(meta);
+  }
+}
+
+function renderMessages() {
+  const el = $("#msgs"); el.innerHTML = "";
+  const c = cur();
+  $("#title").textContent = c?.title || "New chat";
+  if (!c || !c.messages.length) {
+    el.innerHTML = `<div class="empty"><h1>What's on your mind?</h1><div>Chatting with <b>${esc(settings.model)}</b> running locally</div></div>`;
+    return;
+  }
+  c.messages.forEach((m, i) => el.appendChild(msgEl(m, i)));
+  scrollDown(true);
+}
+
+function renderAll() { renderSidebar(); renderMessages(); }
+
+let stick = true;
+$("#log").addEventListener("scroll", () => {
+  const l = $("#log"); stick = l.scrollHeight - l.scrollTop - l.clientHeight < 80;
+});
+function scrollDown(force) { const l = $("#log"); if (force || stick) l.scrollTop = l.scrollHeight; }
+
+document.addEventListener("click", (e) => {
+  if (e.target.classList.contains("copy")) {
+    const code = e.target.parentElement.querySelector("code").textContent;
+    navigator.clipboard.writeText(code); e.target.textContent = "Copied";
+    setTimeout(() => (e.target.textContent = "Copy"), 1200);
+  }
+});
+
+/* ---------- chat ---------- */
+function setBusy(b) {
+  $("#send").textContent = b ? "Stop" : "Send";
+  $("#send").disabled = false;
+}
+
+async function send() {
+  if (controller) { controller.abort(); return; }
+  const text = $("#input").value.trim();
+  if (!text) return;
+  $("#input").value = ""; autosize();
+  let c = cur();
+  if (!c) { c = { id: Date.now().toString(36), title: "", messages: [] }; convs.unshift(c); currentId = c.id; }
+  if (!c.title) c.title = text.slice(0, 48);
+  c.messages.push({ role: "user", content: text });
+  save(); renderAll();
+  await generate(c);
+}
+
+async function regenerate() {
+  const c = cur(); if (!c || controller) return;
+  if (c.messages.at(-1)?.role === "assistant") c.messages.pop();
+  save(); renderMessages();
+  await generate(c);
+}
+
+async function generate(c) {
+  const m = { role: "assistant", content: "", thinking: "" };
+  c.messages.push(m);
+  const idx = c.messages.length - 1;
+  const el = msgEl({ role: "assistant", content: "" }, idx);
+  $("#msgs").appendChild(el); fillAssistant(el, m, idx, true); scrollDown(true);
+
+  const history = c.messages.slice(0, -1).map(({ role, content }) => ({ role, content }));
+  if (settings.system.trim()) history.unshift({ role: "system", content: settings.system.trim() });
+
+  controller = new AbortController(); setBusy(true);
+  let pending = false;
+  const paint = () => { if (pending) return; pending = true; requestAnimationFrame(() => { pending = false; fillAssistant(el, m, idx, true); scrollDown(); }); };
+
+  try {
+    const res = await fetch("/api/chat", {
+      method: "POST", signal: controller.signal,
+      body: JSON.stringify({ model: settings.model, messages: history, stream: true, ...(thinkingModels.has(settings.model) ? { think: settings.think } : {}), options: { temperature: Number(settings.temp) } }),
+    });
+    if (!res.ok) throw new Error((await res.text()) || res.statusText);
+    const reader = res.body.getReader(); const dec = new TextDecoder(); let buf = "";
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buf += dec.decode(value, { stream: true });
+      let nl;
+      while ((nl = buf.indexOf("\n")) >= 0) {
+        const line = buf.slice(0, nl).trim(); buf = buf.slice(nl + 1);
+        if (!line) continue;
+        const j = JSON.parse(line);
+        if (j.error) throw new Error(j.error);
+        if (j.message?.thinking) m.thinking += j.message.thinking;
+        if (j.message?.content) m.content += j.message.content;
+        if (j.done && j.eval_count) {
+          const secs = j.eval_duration / 1e9;
+          m.stats = `${j.eval_count} tokens · ${(j.eval_count / secs).toFixed(1)} tok/s`;
+        }
+        paint();
+      }
+    }
+  } catch (e) {
+    if (e.name === "AbortError") m.stats = "stopped";
+    else { let msg = e.message; try { msg = JSON.parse(msg).error || msg; } catch {} m.error = msg; }
+  } finally {
+    controller = null; setBusy(false);
+    // Some models leaves stray <think> tags in content when thinking is off
+    m.content = m.content.replace(/^\s*<think>\s*<\/think>\s*/, "");
+    save(); fillAssistant(el, m, idx, false); renderSidebar(); scrollDown();
+    $("#input").focus();
+  }
+}
+
+/* ---------- settings + wiring ---------- */
+async function loadModels() {
+  try {
+    const r = await fetch("/api/tags"); const j = await r.json();
+    if (j.error) throw new Error(j.error);
+    const names = (j.models || []).map((x) => x.name);
+    thinkingModels = new Set((j.models || []).filter((x) => (x.capabilities || []).includes("thinking")).map((x) => x.name));
+    // remember the model the user wants, even while falling back to another one
+    const wanted = settings.wanted || settings.model;
+    let note = "● connected";
+    if (names.includes(wanted)) { settings.model = wanted; delete settings.wanted; }
+    else if (names.length) {
+      settings.wanted = wanted; settings.model = names[0];
+      note = `${wanted} not installed yet, using ${names[0]}`;
+      setTimeout(loadModels, 10000);   // check again and switch on its own once it's installed
+    }
+    $("#model").innerHTML = names.map((n) => `<option ${n === settings.model ? "selected" : ""}>${esc(n)}</option>`).join("");
+    $("#status").textContent = note; $("#status").className = "";
+    updateThinkRow(); renderMessages();
+  } catch (e) {
+    $("#status").textContent = "● Ollama not reachable"; $("#status").className = "err";
+    $("#model").innerHTML = `<option>${esc(settings.model)}</option>`;
+    setTimeout(loadModels, 3000);
+  }
+}
+
+function bindSetting(id, key, prop = "value") {
+  const el = $("#" + id); el[prop] = settings[key];
+  el.addEventListener("change", () => { settings[key] = el[prop]; if (key === "model") delete settings.wanted; store.set("settings", settings); if (key === "model") { updateThinkRow(); renderMessages(); } });
+}
+// only offer "show reasoning" for models that can think (qwen3 yes, hermes3 no)
+function updateThinkRow() { $("#thinkRow").style.display = thinkingModels.has(settings.model) ? "" : "none"; }
+bindSetting("model", "model"); bindSetting("system", "system"); bindSetting("temp", "temp"); bindSetting("think", "think", "checked");
+
+function autosize() { const t = $("#input"); t.style.height = "auto"; t.style.height = Math.min(t.scrollHeight, 220) + "px"; }
+$("#input").addEventListener("input", autosize);
+$("#input").addEventListener("keydown", (e) => {
+  if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); if (!controller) send(); }
+});
+$("#send").onclick = send;
+$("#newChat").onclick = () => { if (controller) return; currentId = null; save(); renderAll(); $("#input").focus(); };
+$("#toggleSide").onclick = () => $("#side").classList.toggle("hidden");
+if (innerWidth < 700) $("#side").classList.add("hidden");
+document.addEventListener("keydown", (e) => { if (e.key === "Escape" && controller) controller.abort(); });
+
+renderAll();
+loadModels();
+</script>
+</body>
+</html>
